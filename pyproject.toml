@@ -3,6 +3,7 @@ name = "collector-evaluator"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "eansearch>=1.14.0",
     "fastapi[standard]>=0.163.2",
     "psycopg[binary]>=3.3.9",
     "pydantic>=2.14.3",

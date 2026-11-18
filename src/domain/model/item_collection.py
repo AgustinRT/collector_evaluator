@@ -13,3 +13,4 @@ class ItemCollection(BaseModel):
     description: str = Field(..., description="Description of item.")
     status: ItemStatus = Field(..., description="Status of item.")
     owner: User = Field(..., description="User owner of item")
+    barcode: int = Field(..., description="Number with the barcode")

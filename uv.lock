@@ -220,6 +220,7 @@ name = "collector-evaluator"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "eansearch" },
     { name = "fastapi", extra = ["standard"] },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
@@ -234,6 +235,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "eansearch", specifier = ">=1.14.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.163.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.9" },
     { name = "pydantic", specifier = ">=2.14.3" },
@@ -283,6 +285,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/88/7f/731ff914b0255d3d065f45fd4e626d4b8c95dbcbaada049f337a6ac16410/docker-7.2.0.tar.gz", hash = "sha256:cebb93773d334f778e023a7ee352a8d6e13ab1bd3b863a4d4a59dec897df43ac", size = 118731, upload-time = "2026-07-09T14:53:46.39Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/75/23/529140fe1aab80fc6992f93a706deec709140a6397439139a054e1515c45/docker-7.2.0-py3-none-any.whl", hash = "sha256:a3f45fdeb9165e2d25d9a1d02ddf3bc70fb572cf5ebbf9b58558c22caf29b71f", size = 148775, upload-time = "2026-07-09T14:53:45.224Z" },
+]
+
+[[package]]
+name = "eansearch"
+version = "1.14.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/09/fe/0189c1f90f07d8d109835009e9459966d091e39cd279a2a93a3309785c35/eansearch-1.14.0.tar.gz", hash = "sha256:fae03c1200d3398d601445fd927a11f9c36ae01572da5f7cd9fb28a5bf345e46", size = 5086, upload-time = "2026-10-17T10:05:47.027Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/73/67bf4dc67ee3683c15e0c3048a980bc793bea06d7e6248005faa2b3f2270/eansearch-1.14.0-py3-none-any.whl", hash = "sha256:19b12501aa1a7f5381c23222b1f7b108d8acc62c3adb82c43453cf34bff431f9", size = 5419, upload-time = "2026-10-17T10:05:45.795Z" },
 ]
 
 [[package]]
