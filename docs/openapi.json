@@ -1,0 +1,1023 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Collector Evaluator API",
+    "description": "\nMicroservice to register **users**, their collectible **items** (DVDs, video games, music, books...) and the\n**collections** that group them.\n\n## Workflow\n1. **Create a user** with `POST /users`. It starts with status `in_progress` and evaluation `0.0`.\n2. **Add items** to the user with `POST /users/{username}/items`. Each item starts with status `validating`.\n3. **List the user's items** with `GET /users/{username}/items`. Each item has an `id`.\n4. **Group items into a collection** with `POST /users/{username}/collections`, passing the items' ids.\n5. **List the collections** of a user with `GET /users/{username}/collections`, or the collections that include\n   an item with `GET /users/{username}/items/{item_id}/collections`.\n\n## Validation\nInvalid requests are rejected with **422** and a description of each invalid field:\n* **username**: mandatory, 1-150 characters, unique (a duplicate returns **409**).\n* **email**: mandatory, must be a valid address.\n* **location**: optional; if given, `latitude` must be in [-90, 90] and `longitude` in [-180, 180].\n* **barcode**: a number with up to 14 digits and a valid EAN/UPC/GTIN check digit.\n* **collection**: mandatory `name` (not unique) and `description`, and one or more ids of the user's own items.\n  Only users `in_progress`/`active` and items `validating`/`able` qualify (**409** otherwise).\n* Fields assigned by the service (`status`, `evaluation`, item `owner`) cannot be sent.\n",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/users": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Create a user",
+        "description": "Registers a new user.\n\n* **username**: mandatory, 1-150 characters (surrounding spaces are removed), unique.\n* **email**: mandatory, must be a valid email address.\n* **location**: optional; `latitude` in [-90, 90] and `longitude` in [-180, 180], both required.\n\nThe user is created with status `in_progress` (until its validation completes) and evaluation `0.0`;\nthese fields cannot be sent.",
+        "operationId": "create_user_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              },
+              "examples": {
+                "minimal": {
+                  "summary": "Username and email only",
+                  "value": {
+                    "username": "alice",
+                    "email": "alice@example.com"
+                  }
+                },
+                "with_location": {
+                  "summary": "With geolocation",
+                  "description": "Optional location in decimal degrees (here, Madrid).",
+                  "value": {
+                    "username": "bob",
+                    "email": "bob@example.com",
+                    "location": {
+                      "latitude": 40.4168,
+                      "longitude": -3.7038
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The created user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Username already exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "detail": "User 'alice' already exists."
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{username}": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Get a user",
+        "description": "Returns the user with the given username.",
+        "operationId": "get_user_users__username__get",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Username of the user.",
+              "examples": [
+                "alice"
+              ],
+              "title": "Username"
+            },
+            "description": "Username of the user."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "User 'ghost' not found."
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{username}/items": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Add an item to a user",
+        "description": "Validates a new item and registers it for the user in the URL.\n\n* **name**: mandatory, 1-200 characters.\n* **description**: mandatory, 1-2000 characters.\n* **barcode**: EAN-8, UPC-A, EAN-13 (including ISBN-13) or GTIN-14 as a JSON number (not a string),\n  with a valid check digit. Leading zeros cannot be written in a JSON number: send UPC-A\n  `012345678905` as `12345678905`.\n\nThe item is created with status `validating`; the status and owner cannot be sent.",
+        "operationId": "create_item_users__username__items_post",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Username of the owner.",
+              "examples": [
+                "alice"
+              ],
+              "title": "Username"
+            },
+            "description": "Username of the owner."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateItemRequest"
+              },
+              "examples": {
+                "dvd": {
+                  "summary": "DVD (EAN-13)",
+                  "description": "Barcode of the sample DVD in src/resources/sample_dvd/barcode.jpg.",
+                  "value": {
+                    "name": "Sample DVD",
+                    "description": "DVD, region 2, PAL.",
+                    "barcode": 5050582500417
+                  }
+                },
+                "book": {
+                  "summary": "Book (ISBN-13)",
+                  "description": "An ISBN-13 is an EAN-13 barcode.",
+                  "value": {
+                    "name": "A book",
+                    "description": "Hardcover, first edition.",
+                    "barcode": 9780306406157
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "User 'ghost' not found."
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "items"
+        ],
+        "summary": "List the items of a user",
+        "description": "Returns the items of the user in the URL, oldest first.",
+        "operationId": "list_items_users__username__items_get",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Username of the owner.",
+              "examples": [
+                "alice"
+              ],
+              "title": "Username"
+            },
+            "description": "Username of the owner."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user's items, oldest first (empty if the user has none).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemResponse"
+                  },
+                  "title": "Response List Items Users  Username  Items Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "User 'ghost' not found."
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{username}/collections": {
+      "post": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Create a collection",
+        "description": "Groups one or more of the user's items into a new collection.\n\n* **name**: mandatory, 1-200 characters, does not need to be unique.\n* **description**: mandatory, 1-2000 characters.\n* **item_ids**: one or more ids (without repetitions) of items that belong to the user.\n\nOnly users with status `in_progress` or `active` can create collections, and only items with status\n`validating` or `able` can be added (**409** otherwise).",
+        "operationId": "create_collection_users__username__collections_post",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Username of the owner.",
+              "examples": [
+                "alice"
+              ],
+              "title": "Username"
+            },
+            "description": "Username of the owner."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCollectionRequest"
+              },
+              "examples": {
+                "two_items": {
+                  "summary": "Collection with two items",
+                  "description": "`item_ids` are the `id` values returned when the items were created.",
+                  "value": {
+                    "name": "Favourite films",
+                    "description": "The DVDs I would never sell.",
+                    "item_ids": [
+                      1,
+                      2
+                    ]
+                  }
+                },
+                "single_item": {
+                  "summary": "Collection with one item",
+                  "value": {
+                    "name": "Signed copies",
+                    "description": "Items signed by the author.",
+                    "item_ids": [
+                      1
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created collection, with its items.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The user does not exist, or some items do not exist or belong to another user.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Items 7, 8 not found for user 'alice'."
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The user's status or some items' status does not allow creating the collection.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Items cannot be added to a collection because of their status: 3 (disable)."
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "List the collections of a user",
+        "description": "Returns the collections of the user in the URL, oldest first, each with its items.",
+        "operationId": "list_collections_users__username__collections_get",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Username of the owner.",
+              "examples": [
+                "alice"
+              ],
+              "title": "Username"
+            },
+            "description": "Username of the owner."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user's collections with their items, oldest first (empty if the user has none).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CollectionResponse"
+                  },
+                  "title": "Response List Collections Users  Username  Collections Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "User not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "User 'ghost' not found."
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{username}/items/{item_id}/collections": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "List the collections that include an item",
+        "description": "Returns the collections of the user in the URL that include the given item, oldest first.",
+        "operationId": "list_item_collections_users__username__items__item_id__collections_get",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Username of the owner.",
+              "examples": [
+                "alice"
+              ],
+              "title": "Username"
+            },
+            "description": "Username of the owner."
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "Id of one of the user's items.",
+              "examples": [
+                1
+              ],
+              "title": "Item Id"
+            },
+            "description": "Id of one of the user's items."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The collections that include the item, oldest first (empty if none).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CollectionResponse"
+                  },
+                  "title": "Response List Item Collections Users  Username  Items  Item Id  Collections Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The user does not exist, or the item does not exist or belongs to another user.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": "Item 7 not found for user 'alice'."
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Check the service is running",
+        "operationId": "main__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CollectionResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "Identifier of the collection.",
+            "examples": [
+              1
+            ]
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Favourite films"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "examples": [
+              "The DVDs I would never sell."
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner",
+            "description": "Username of the owner.",
+            "examples": [
+              "alice"
+            ]
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Items of the collection, ordered by id."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "owner",
+          "items"
+        ],
+        "title": "CollectionResponse",
+        "description": "A collection as returned by the API, with its items. The owner is identified by username only."
+      },
+      "CreateCollectionRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "description": "Name of collection (does not need to be unique).",
+            "examples": [
+              "Favourite films"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Description",
+            "description": "Description of collection.",
+            "examples": [
+              "The DVDs I would never sell."
+            ]
+          },
+          "item_ids": {
+            "items": {
+              "type": "integer",
+              "exclusiveMinimum": 0.0
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Item Ids",
+            "description": "Ids of one or more of the user's items.",
+            "examples": [
+              [
+                1,
+                2
+              ]
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "item_ids"
+        ],
+        "title": "CreateCollectionRequest",
+        "description": "Body of a collection creation request. The owner comes from the URL, so sending it is rejected."
+      },
+      "CreateItemRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "description": "Name of item.",
+            "examples": [
+              "Sample DVD"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Description",
+            "description": "Description of item.",
+            "examples": [
+              "DVD, region 2, PAL."
+            ]
+          },
+          "barcode": {
+            "type": "integer",
+            "exclusiveMaximum": 100000000000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Barcode",
+            "description": "EAN/UPC/GTIN barcode as a number, with a valid check digit.",
+            "examples": [
+              5050582500417
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "barcode"
+        ],
+        "title": "CreateItemRequest",
+        "description": "Body of an item creation request. The owner comes from the URL and the status is assigned by the\napplication, so sending them is rejected."
+      },
+      "CreateUserRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Username",
+            "description": "Name of user, is mandatory and unique.",
+            "examples": [
+              "alice"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Email address of user, is mandatory and must be valid.",
+            "examples": [
+              "alice@example.com"
+            ]
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Location"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geolocation of user, optional. Validated if given."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "email"
+        ],
+        "title": "CreateUserRequest",
+        "description": "Body of a user creation request. Status and evaluation are assigned by the application, so\nsending them is rejected."
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "Reason of the error."
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "description": "Body of an error response (except validation errors, which use FastAPI's standard 422 format)."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "ItemResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "Identifier of the item, e.g. to add it to a collection.",
+            "examples": [
+              1
+            ]
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Sample DVD"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "examples": [
+              "DVD, region 2, PAL."
+            ]
+          },
+          "barcode": {
+            "type": "integer",
+            "title": "Barcode",
+            "examples": [
+              5050582500417
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ItemStatus",
+            "description": "New items are `validating` until their verification completes.",
+            "examples": [
+              "validating"
+            ]
+          },
+          "owner": {
+            "type": "string",
+            "title": "Owner",
+            "description": "Username of the owner.",
+            "examples": [
+              "alice"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "barcode",
+          "status",
+          "owner"
+        ],
+        "title": "ItemResponse",
+        "description": "An item as returned by the API. The owner is identified by username only, so the owner's\npersonal data is not repeated in every item."
+      },
+      "ItemStatus": {
+        "type": "string",
+        "enum": [
+          "deleted",
+          "uploading",
+          "validating",
+          "able",
+          "disable"
+        ],
+        "title": "ItemStatus"
+      },
+      "Location": {
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Latitude",
+            "description": "Latitude in degrees, -90 to 90.",
+            "examples": [
+              40.4168
+            ]
+          },
+          "longitude": {
+            "type": "number",
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Longitude",
+            "description": "Longitude in degrees, -180 to 180.",
+            "examples": [
+              -3.7038
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "title": "Location",
+        "description": "Geolocation (WGS84 decimal degrees) provided by the user. Both coordinates are required, must be\nnumbers (not strings or booleans) and must be within their valid range."
+      },
+      "User": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Username",
+            "description": "Name of user, is mandatory and unique.",
+            "examples": [
+              "alice"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Email address of user, is mandatory and must be valid.",
+            "examples": [
+              "alice@example.com"
+            ]
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Location"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geolocation given at registration, optional."
+          },
+          "status": {
+            "$ref": "#/components/schemas/UserStatus",
+            "description": "State of user. New users are IN_PROGRESS until their validation completes, then ACTIVE.",
+            "default": "in_progress",
+            "examples": [
+              "in_progress"
+            ]
+          },
+          "evaluation": {
+            "type": "number",
+            "title": "Evaluation",
+            "description": "Valoration of user. New users start at 0.0.",
+            "default": 0.0,
+            "examples": [
+              0.0
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "email"
+        ],
+        "title": "User",
+        "description": "A user. The defaults of status and evaluation are the state every new user starts in."
+      },
+      "UserStatus": {
+        "type": "string",
+        "enum": [
+          "deleted",
+          "in_progress",
+          "active",
+          "inactive",
+          "blocked"
+        ],
+        "title": "UserStatus",
+        "description": "Posible states for users"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "users",
+      "description": "Registration and lookup of users."
+    },
+    {
+      "name": "items",
+      "description": "Collectible items owned by a user."
+    },
+    {
+      "name": "collections",
+      "description": "Named groups of one or more items of a user."
+    },
+    {
+      "name": "status",
+      "description": "Service availability."
+    }
+  ]
+}
